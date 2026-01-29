@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tax Forms App</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Tax Forms</h1>
+            <div class="header-actions">
+                <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">
+                    <span class="theme-icon">🌙</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Sidebar Navigation -->
+            <aside class="sidebar">
+                <nav class="form-nav">
+                    <button class="nav-item active" data-form="w2">Form W-2</button>
+                    <button class="nav-item" data-form="1099nec">Form 1099-NEC</button>
+                    <button class="nav-item" data-form="1099k">Form 1099-K</button>
+                    <button class="nav-item" data-form="1098">Form 1098</button>
+                    <button class="nav-item" data-form="1099misc">Form 1099-MISC</button>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="content-area">
+                <!-- Toolbar -->
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <button id="importBtn" class="btn btn-primary">Import</button>
+                        <button id="exportTableBtn" class="btn btn-secondary">Copy Table</button>
+                        <button id="exportAllBtn" class="btn btn-secondary">Copy All</button>
+                        <button id="deleteAllBtn" class="btn btn-danger">Delete All</button>
+                    </div>
+                </div>
+
+                <!-- Column Filter Controls -->
+                <div class="column-filters">
+                    <div class="filter-label">Show columns:</div>
+                    <div class="filter-checkboxes">
+                        <label class="filter-checkbox">
+                            <input type="checkbox" data-category="basic" checked>
+                            <span>Basic Info</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" data-category="income" checked>
+                            <span>Income</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" data-category="tax" checked>
+                            <span>Tax Withheld</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" data-category="other" checked>
+                            <span>Other</span>
+                        </label>
+                    </div>
+                    <div class="filter-actions">
+                        <button id="showAllColumns" class="btn btn-small">Show All</button>
+                        <button id="hideOptionalColumns" class="btn btn-small">Hide Optional</button>
+                    </div>
+                </div>
+
+                <!-- Table Container -->
+                <div class="table-container">
+                    <table id="dataTable" class="data-table">
+                        <thead id="tableHead">
+                            <!-- Headers will be generated dynamically -->
+                        </thead>
+                        <tbody id="tableBody">
+                            <!-- Rows will be generated dynamically -->
+                        </tbody>
+                    </table>
+                    <div id="emptyState" class="empty-state">
+                        <p>No entries yet. Use the Import button to import your tax form data.</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div id="entryModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Edit Entry</h2>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="entryForm">
+                    <!-- Form fields will be generated dynamically -->
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                <button type="submit" form="entryForm" class="btn btn-primary" id="saveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Import Data</h2>
+                <button class="modal-close" id="closeImportModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="dropZone" class="drop-zone">
+                    <p>Drag and drop a JSON file here</p>
+                    <p>or</p>
+                    <button type="button" class="btn btn-primary" id="fileInputBtn">Choose File</button>
+                    <input type="file" id="fileInput" accept=".json" style="display: none;">
+                </div>
+                <div class="import-divider">
+                    <span>or</span>
+                </div>
+                <div class="import-text-section">
+                    <label for="jsonTextInput" class="form-group">
+                        <span>Paste JSON data:</span>
+                    </label>
+                    <textarea id="jsonTextInput" class="json-textarea" placeholder='Paste your JSON here, e.g. [{"employer": "Acme Corp", "wages": 50000}]'></textarea>
+                    <button type="button" class="btn btn-primary" id="submitJsonBtn" style="margin-top: 1rem;">Import JSON</button>
+                </div>
+                <div id="importStatus" class="import-status"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
