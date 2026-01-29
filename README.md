@@ -94,3 +94,6 @@ Works best in modern browsers:
 - This app runs entirely in your browser - no internet connection required after initial load
 - All data is stored locally - never sent to any server
 - For best results, use a modern browser with JavaScript enabled
+
+---
+*Last updated: January 2026*
