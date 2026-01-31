@@ -150,19 +150,79 @@ const FORM_SCHEMAS = {
     }
 };
 
+// Supabase: Project Settings → API. Client is created from UMD global (window.supabase) so app works from file:// locally.
+const SUPABASE_URL = 'https://gbdzyovqxdjllmshmsjb.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_oHSV_DvQjVtQN90Ws61Wkg_imvf4VYd';
+let supabase = null;
+
 // App State
 let currentFormType = 'w2';
 let editingEntryId = null;
 let data = {};
 
-// Initialize App
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize App: UI first (theme, listeners, first paint) so Import/theme work immediately; then Supabase + data in background.
+function init() {
     loadTheme();
-    loadData();
     initializeEventListeners();
+
+    // Sync load from localStorage for first paint
+    const saved = localStorage.getItem('taxFormsData');
+    if (saved) {
+        try {
+            data = JSON.parse(saved);
+        } catch (e) {
+            data = {};
+        }
+    }
+    Object.keys(FORM_SCHEMAS).forEach(formType => {
+        if (!data[formType]) data[formType] = [];
+    });
+
     renderTable(currentFormType);
     loadColumnPreferences(currentFormType);
-});
+    showStorageIndicator();
+
+    // Supabase + loadData in background (no blocking; works when opened from file://)
+    setTimeout(function runSupabaseAndData() {
+        try {
+            if (typeof window.supabase !== 'undefined' && typeof window.supabase.createClient === 'function') {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('Tax Forms App: using Supabase for storage');
+            } else {
+                supabase = null;
+                console.warn('Tax Forms: Supabase script not loaded — using localStorage.');
+            }
+        } catch (e) {
+            console.error('Supabase createClient failed:', e);
+            supabase = null;
+        }
+        loadData().then(function () {
+            renderTable(currentFormType);
+            showStorageIndicator();
+        }).catch(function (e) {
+            console.error('loadData failed:', e);
+            showStorageIndicator();
+        });
+    }, 0);
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
+
+// Update header indicator only (Storage: Supabase / Storage: This device only)
+function showStorageIndicator() {
+    const headerEl = document.getElementById('storageIndicator');
+    if (!headerEl) return;
+    if (supabase) {
+        headerEl.textContent = 'Storage: Supabase';
+        headerEl.setAttribute('aria-label', 'Data is saved to Supabase');
+    } else {
+        headerEl.textContent = 'Storage: This device only';
+        headerEl.setAttribute('aria-label', 'Data is saved to this device only');
+    }
+}
 
 // Migration mapping from old field names to new box-number keys
 const W2_FIELD_MIGRATION = {
@@ -183,7 +243,7 @@ const W2_FIELD_MIGRATION = {
 };
 
 // Migrate W-2 data from old field names to new box-number keys
-function migrateW2Data() {
+async function migrateW2Data() {
     if (!data.w2 || !Array.isArray(data.w2)) {
         return;
     }
@@ -245,23 +305,51 @@ function migrateW2Data() {
 
     if (needsMigration) {
         data.w2 = migratedEntries;
-        saveData();
+        if (supabase) {
+            for (const entry of data.w2) {
+                const { id, ...dataOnly } = entry;
+                await supabase.from('form_entries').update({ data: dataOnly }).eq('id', id);
+            }
+        } else {
+            saveData();
+        }
         console.log('W-2 data migrated successfully');
     }
 }
 
-// Load Data from localStorage
-function loadData() {
-    const saved = localStorage.getItem('taxFormsData');
-    if (saved) {
-        try {
-            data = JSON.parse(saved);
-        } catch (e) {
-            console.error('Error loading data:', e);
+// Load Data from Supabase or localStorage
+async function loadData() {
+    if (supabase) {
+        const { data: rows, error } = await supabase.from('form_entries').select('*');
+        if (error) {
+            console.error('Supabase load error:', error);
+            showToast(`Database error: ${error.message || error.code || 'Could not load'}`, 'error');
             data = {};
+        } else {
+            data = {};
+            Object.keys(FORM_SCHEMAS).forEach(formType => {
+                data[formType] = [];
+            });
+            (rows || []).forEach(row => {
+                const { id: _ignored, ...rest } = row.data || {};
+                const entry = { id: row.id, ...rest };
+                if (data[row.form_type]) {
+                    data[row.form_type].push(entry);
+                }
+            });
+        }
+    } else {
+        const saved = localStorage.getItem('taxFormsData');
+        if (saved) {
+            try {
+                data = JSON.parse(saved);
+            } catch (e) {
+                console.error('Error loading data:', e);
+                data = {};
+            }
         }
     }
-    
+
     // Initialize empty arrays for each form type if they don't exist
     Object.keys(FORM_SCHEMAS).forEach(formType => {
         if (!data[formType]) {
@@ -270,11 +358,12 @@ function loadData() {
     });
 
     // Migrate W-2 data if needed
-    migrateW2Data();
+    await migrateW2Data();
 }
 
-// Save Data to localStorage
+// Save Data to localStorage (only used when Supabase is not configured)
 function saveData() {
+    if (supabase) return;
     try {
         localStorage.setItem('taxFormsData', JSON.stringify(data));
     } catch (e) {
@@ -677,7 +766,7 @@ function closeModal() {
 }
 
 // Handle Form Submit
-function handleFormSubmit(e) {
+async function handleFormSubmit(e) {
     e.preventDefault();
     
     const formData = new FormData(e.target);
@@ -704,53 +793,76 @@ function handleFormSubmit(e) {
     });
 
     if (editingEntryId) {
-        editEntry(currentFormType, editingEntryId, entryData);
+        await editEntry(currentFormType, editingEntryId, entryData);
     }
 
     closeModal();
 }
 
 // Edit Entry
-function editEntry(formType, entryId, entryData) {
+async function editEntry(formType, entryId, entryData) {
     const index = data[formType].findIndex(e => e.id === entryId);
-    if (index !== -1) {
-        data[formType][index] = {
-            ...data[formType][index],
-            ...entryData,
-            id: entryId
-        };
-        saveData();
-        renderTable(formType);
-        showToast('Entry updated successfully', 'success');
+    if (index === -1) return;
+    if (supabase) {
+        const { error } = await supabase.from('form_entries').update({ data: entryData }).eq('id', entryId);
+        if (error) {
+            console.error('Error updating entry:', error);
+            showToast('Error updating entry', 'error');
+            return;
+        }
     }
+    data[formType][index] = {
+        ...data[formType][index],
+        ...entryData,
+        id: entryId
+    };
+    if (!supabase) saveData();
+    renderTable(formType);
+    showToast('Entry updated successfully', 'success');
 }
 
 // Handle Delete Entry
-function handleDeleteEntry(entryId) {
+async function handleDeleteEntry(entryId) {
     if (confirm('Are you sure you want to delete this entry?')) {
-        deleteEntry(currentFormType, entryId);
+        await deleteEntry(currentFormType, entryId);
     }
 }
 
 // Delete Entry
-function deleteEntry(formType, entryId) {
+async function deleteEntry(formType, entryId) {
+    if (supabase) {
+        const { error } = await supabase.from('form_entries').delete().eq('id', entryId);
+        if (error) {
+            console.error('Error deleting entry:', error);
+            showToast('Error deleting entry', 'error');
+            return;
+        }
+    }
     data[formType] = data[formType].filter(e => e.id !== entryId);
-    saveData();
+    if (!supabase) saveData();
     renderTable(formType);
     showToast('Entry deleted successfully', 'success');
 }
 
 // Handle Delete All
-function handleDeleteAll() {
+async function handleDeleteAll() {
     if (confirm(`Are you sure you want to delete all entries for ${FORM_SCHEMAS[currentFormType].name}? This cannot be undone.`)) {
-        deleteTable(currentFormType);
+        await deleteTable(currentFormType);
     }
 }
 
 // Delete Table
-function deleteTable(formType) {
+async function deleteTable(formType) {
+    if (supabase) {
+        const { error } = await supabase.from('form_entries').delete().eq('form_type', formType);
+        if (error) {
+            console.error('Error deleting entries:', error);
+            showToast('Error deleting entries', 'error');
+            return;
+        }
+    }
     data[formType] = [];
-    saveData();
+    if (!supabase) saveData();
     renderTable(formType);
     showToast('All entries deleted', 'success');
 }
@@ -862,7 +974,7 @@ function parseJsonError(error, jsonText) {
 }
 
 // Handle JSON Text Submit
-function handleJsonTextSubmit() {
+async function handleJsonTextSubmit() {
     const jsonText = document.getElementById('jsonTextInput').value.trim();
     
     if (!jsonText) {
@@ -883,7 +995,7 @@ function handleJsonTextSubmit() {
         const validated = validateImportData(importedData);
         
         if (validated) {
-            processImportedData(importedData);
+            await processImportedData(importedData);
             // Update status if cleaning occurred
             if (wasCleaned) {
                 showImportStatus(`Successfully imported! (Note: ${cleaningLog.join(', ')})`, 'success');
@@ -953,44 +1065,57 @@ function handleDrop(e) {
 }
 
 // Process Imported Data
-function processImportedData(importedData) {
+async function processImportedData(importedData) {
     const mapped = mapFieldsToForm(importedData, currentFormType);
     let importedCount = 0;
-    
-    if (Array.isArray(mapped)) {
-        // Import as array of entries
-        mapped.forEach(entry => {
+    const entriesToAdd = Array.isArray(mapped) ? mapped : [mapped];
+
+    for (const entry of entriesToAdd) {
+        if (supabase) {
+            const dataToStore = { ...entry };
+            delete dataToStore.id;
+            const { data: inserted, error } = await supabase
+                .from('form_entries')
+                .insert({ form_type: currentFormType, data: dataToStore })
+                .select('id')
+                .single();
+            if (error) {
+                console.error('Supabase import error:', error);
+                const msg = error.message || (error.code ? `Code: ${error.code}` : 'Unknown error');
+                showImportStatus(`Import failed: ${msg}`, 'error');
+                showToast(`Import failed: ${msg}`, 'error');
+                return;
+            }
+            data[currentFormType].push({ ...entry, id: inserted.id });
+        } else {
             if (!entry.id) {
                 entry.id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
             }
             data[currentFormType].push(entry);
-            importedCount++;
-        });
-    } else if (typeof mapped === 'object') {
-        // Import as single entry
-        if (!mapped.id) {
-            mapped.id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
         }
-        data[currentFormType].push(mapped);
-        importedCount = 1;
+        importedCount++;
     }
-    
-    saveData();
+
+    if (!supabase) saveData();
     renderTable(currentFormType);
-    showImportStatus(`Successfully imported ${importedCount} entry/entries`, 'success');
+    if (supabase) {
+        showImportStatus(`Successfully imported ${importedCount} entry/entries. Saved to Supabase.`, 'success');
+    } else {
+        showImportStatus(`Successfully imported ${importedCount} entry/entries. Saved to this device only (Supabase not connected).`, 'success');
+    }
 }
 
 // Import Data
 function importData(file) {
     const reader = new FileReader();
     
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         try {
             const importedData = JSON.parse(e.target.result);
             const validated = validateImportData(importedData);
             
             if (validated) {
-                processImportedData(importedData);
+                await processImportedData(importedData);
             } else {
                 showImportStatus('Invalid data format', 'error');
             }

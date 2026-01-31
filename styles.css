@@ -75,6 +75,16 @@ body {
     align-items: center;
 }
 
+.storage-indicator {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+}
+
+
 .theme-toggle {
     background: none;
     border: 1px solid var(--border-color);
